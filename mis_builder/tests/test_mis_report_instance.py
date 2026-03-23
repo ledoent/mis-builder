@@ -490,6 +490,74 @@ class TestMisReportInstance(common.HttpCase):
             [[False, "list"], [False, "form"], [False, "pivot"], [False, "graph"]],
         )
 
+    def test_drilldown_computed_kpi(self):
+        """Computed KPIs that reference account-var KPIs should be drillable."""
+        # k4 = k1 + k2 + k3 ; k1 and k2 have balp[200%] expressions
+        k4 = self.env["mis.report.kpi"].search(
+            [("report_id", "=", self.report.id), ("name", "=", "k4")]
+        )
+        period = self.report_instance.period_ids[0]
+        action = self.report_instance.drilldown(
+            {"expr": "k1 + k2 + k3", "period_id": period.id, "kpi_id": k4.id}
+        )
+        self.assertTrue(
+            action,
+            "Computed KPI referencing account KPIs should drilldown",
+        )
+        self.assertEqual(action["type"], "ir.actions.act_window")
+        self.assertEqual(action["res_model"], "account.move.line")
+        # Domain should contain account_id filters from both k1 and k2
+        domain_str = str(action["domain"])
+        self.assertIn("account_id", domain_str)
+
+    def test_drilldown_computed_kpi_no_account_refs(self):
+        """Computed KPIs with no account-var references should return False."""
+        # Create a KPI that only references constants
+        kpi_const = self.env["mis.report.kpi"].create(
+            {
+                "report_id": self.report.id,
+                "description": "constant total",
+                "name": "k_const_total",
+                "multi": False,
+                "expression": "k3",
+            }
+        )
+        period = self.report_instance.period_ids[0]
+        action = self.report_instance.drilldown(
+            {"expr": "k3", "period_id": period.id, "kpi_id": kpi_const.id}
+        )
+        self.assertFalse(
+            action, "Computed KPI with no account refs should not drilldown"
+        )
+
+    def test_drilldown_falsy_args(self):
+        """Drilldown with missing period or expr should return False."""
+        self.assertFalse(self.report_instance.drilldown({}))
+        self.assertFalse(self.report_instance.drilldown({"expr": "balp[200%]"}))
+        self.assertFalse(
+            self.report_instance.drilldown(
+                {"period_id": self.report_instance.period_ids[0].id}
+            )
+        )
+
+    def test_computed_kpi_clickable_in_matrix(self):
+        """Computed KPIs referencing account KPIs should have
+        drilldown_arg."""
+        matrix = self.report_instance.compute()
+        # Find the k4 row (description "kpi 4", computed: k1+k2+k3)
+        k4_row = None
+        for row in matrix.get("body", []):
+            if row.get("label") == "kpi 4":
+                k4_row = row
+                break
+        self.assertTrue(k4_row, "k4 row should be in the report body")
+        # At least one cell should have drilldown_arg
+        has_dd = any("drilldown_arg" in c for c in k4_row.get("cells", []))
+        self.assertTrue(
+            has_dd,
+            "Computed KPI k4 should be clickable",
+        )
+
     def test_qweb(self):
         self.report_instance.print_pdf()  # get action
         test_reports.try_report(

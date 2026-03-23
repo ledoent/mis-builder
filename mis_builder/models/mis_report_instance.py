@@ -423,8 +423,7 @@ class MisReportInstancePeriod(models.Model):
                 if rec.mode == MODE_NONE:
                     raise DateFilterRequired(
                         self.env._(
-                            "A date filter is mandatory for this source "
-                            "in column %s.",
+                            "A date filter is mandatory for this source in column %s.",
                             rec.name,
                         )
                     )
@@ -432,8 +431,7 @@ class MisReportInstancePeriod(models.Model):
                 if rec.mode != MODE_NONE:
                     raise DateFilterForbidden(
                         self.env._(
-                            "No date filter is allowed for this source "
-                            "in column %s.",
+                            "No date filter is allowed for this source in column %s.",
                             rec.name,
                         )
                     )
@@ -460,8 +458,7 @@ class MisReportInstancePeriod(models.Model):
                 ):
                     raise ValidationError(
                         self.env._(
-                            "Columns to compare must belong to the same report "
-                            "in %s",
+                            "Columns to compare must belong to the same report in %s",
                             rec.name,
                         )
                     )
@@ -499,7 +496,7 @@ class MisReportInstance(models.Model):
     sequence = fields.Integer(default=10)
     description = fields.Char(related="report_id.description")
     date = fields.Date(
-        string="Base date", help="Report base date " "(leave empty to use current date)"
+        string="Base date", help="Report base date (leave empty to use current date)"
     )
     pivot_date = fields.Date(compute="_compute_pivot_date")
     report_id = fields.Many2one("mis.report", required=True, string="Report")
@@ -765,9 +762,7 @@ class MisReportInstance(models.Model):
             context.get("from_dashboard")
             and context.get("active_model") == "mis.report.instance"
         ):
-            view_id = self.env.ref(
-                "mis_builder." "mis_report_instance_result_view_form"
-            )
+            view_id = self.env.ref("mis_builder.mis_report_instance_result_view_form")
             mis_report_form_view = view_id and [view_id.id, "form"]
             for view in views:
                 if view and view[1] == "form":
@@ -778,7 +773,7 @@ class MisReportInstance(models.Model):
 
     def preview(self):
         self.ensure_one()
-        view_id = self.env.ref("mis_builder." "mis_report_instance_result_view_form")
+        view_id = self.env.ref("mis_builder.mis_report_instance_result_view_form")
         return {
             "type": "ir.actions.act_window",
             "res_model": "mis.report.instance",
@@ -967,8 +962,10 @@ class MisReportInstance(models.Model):
         period_id = arg.get("period_id")
         expr = arg.get("expr")
         account_id = arg.get("account_id")
-        if period_id and expr and AEP.has_account_var(expr):
-            period = self.env["mis.report.instance.period"].browse(period_id)
+        if not (period_id and expr):
+            return False
+        period = self.env["mis.report.instance.period"].browse(period_id)
+        if AEP.has_account_var(expr):
             aep = AEP(
                 self.query_company_ids, self.currency_id, self.report_id.account_model
             )
@@ -992,8 +989,70 @@ class MisReportInstance(models.Model):
                 "target": "current",
                 "context": {"active_test": False},
             }
+        # For computed KPIs, resolve referenced KPI expressions and combine
+        domain = self._get_computed_kpi_drilldown_domain(expr, period, account_id)
+        if domain is not None:
+            views = self._get_drilldown_model_views(period.source_aml_model_name)
+            return {
+                "name": self._get_drilldown_action_name(arg),
+                "domain": domain,
+                "type": "ir.actions.act_window",
+                "res_model": period.source_aml_model_name,
+                "views": [[False, view] for view in views],
+                "view_mode": ",".join(view for view in views),
+                "target": "current",
+                "context": {"active_test": False},
+            }
+        return False
+
+    def _get_computed_kpi_drilldown_domain(self, expr, period, account_id):
+        """Build a combined AML domain for computed KPIs.
+
+        When a KPI expression references other KPIs (e.g. ``expenses +
+        equip``), resolve each referenced KPI to its account expression and
+        combine the resulting domains with OR so the user sees all journal
+        entries that contribute to the computed value.
+        """
+        report = self.report_id
+        kpi_by_name = {kpi.name: kpi for kpi in report.kpi_ids}
+        # Collect account-var expressions from referenced KPIs
+        account_exprs = []
+        for kpi_name, kpi in kpi_by_name.items():
+            if kpi_name not in expr:
+                continue
+            for kpi_expr in kpi.expression_ids:
+                if kpi_expr.name and AEP.has_account_var(kpi_expr.name):
+                    account_exprs.append(kpi_expr.name)
+        if not account_exprs:
+            return None
+        # Build individual domains and combine with OR
+        domains = []
+        for acct_expr in account_exprs:
+            aep = AEP(
+                self.query_company_ids,
+                self.currency_id,
+                report.account_model,
+            )
+            aep.parse_expr(acct_expr)
+            aep.done_parsing()
+            domain = aep.get_aml_domain_for_expr(
+                acct_expr,
+                period.date_from,
+                period.date_to,
+                account_id,
+            )
+            domains.append(domain)
+        if len(domains) == 1:
+            combined = domains[0]
         else:
-            return False
+            # Combine with OR: ['|', domain1, '|', domain2, domain3]
+            combined = []
+            for i, domain in enumerate(domains):
+                if i < len(domains) - 1:
+                    combined.append("|")
+                combined.extend(domain)
+        combined.extend(period._get_additional_move_line_filter())
+        return combined
 
     def _get_drilldown_action_name(self, arg):
         kpi_id = arg.get("kpi_id")
