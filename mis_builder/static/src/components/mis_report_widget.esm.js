@@ -130,14 +130,17 @@ export class MisReportWidget extends Component {
     }
 
     async drilldown(event) {
-        const drilldown = JSON.parse(event.target.dataset.drilldown);
+        const el = event.currentTarget || event.target;
+        const drilldown = JSON.parse(el.dataset.drilldown);
         const action = await this.orm.call(
             "mis.report.instance",
             "drilldown",
             [this._instanceId(), drilldown],
             {context: this.context}
         );
-        this.action.doAction(action);
+        if (action) {
+            this.action.doAction(action);
+        }
     }
 
     async refresh() {

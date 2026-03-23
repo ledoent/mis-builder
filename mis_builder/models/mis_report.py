@@ -642,6 +642,26 @@ class MisReport(models.Model):
                 res[query.name] = s
         return res
 
+    def _get_computed_drilldown_arg(self, expr, col_key, kpi):
+        """Return a drilldown_arg for a computed KPI if it references
+        other KPIs that have account variables.
+
+        This enables drilldown on summary rows like ``expenses + equip``
+        by combining the journal entry domains of the referenced KPIs.
+        """
+        referenced_kpis = self.kpi_ids.filtered(
+            lambda k: k.name in expr and k.id != kpi.id
+        )
+        has_account_child = any(
+            AEP.has_account_var(e.name)
+            for k in referenced_kpis
+            for e in k.expression_ids
+            if e.name
+        )
+        if has_account_child:
+            return {"expr": expr, "period_id": col_key, "kpi_id": kpi.id}
+        return None
+
     def _declare_and_compute_col(  # noqa: C901 (TODO simplify this fnction)
         self,
         expression_evaluator,
@@ -688,11 +708,19 @@ class MisReport(models.Model):
                     drilldown_args,
                     name_error,
                 ) = expression_evaluator.eval_expressions(expressions, locals_dict)
-                for drilldown_arg in drilldown_args:
-                    if not drilldown_arg:
+                for i, drilldown_arg in enumerate(drilldown_args):
+                    if drilldown_arg:
+                        drilldown_arg["period_id"] = col_key
+                        drilldown_arg["kpi_id"] = kpi.id
                         continue
-                    drilldown_arg["period_id"] = col_key
-                    drilldown_arg["kpi_id"] = kpi.id
+                    # For computed KPIs without account vars, check if the
+                    # expression references other KPIs that have account vars
+                    # so we can enable drilldown on the computed total.
+                    expr = expressions[i] and expressions[i].name
+                    if expr and not name_error:
+                        drilldown_args[i] = self._get_computed_drilldown_arg(
+                            expr, col_key, kpi
+                        )
 
                 if name_error:
                     recompute_queue.append(kpi)
