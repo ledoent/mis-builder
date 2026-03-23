@@ -490,6 +490,75 @@ class TestMisReportInstance(common.HttpCase):
             [[False, "list"], [False, "form"], [False, "pivot"], [False, "graph"]],
         )
 
+    def test_account_code_multicompany_context(self):
+        """Account codes should display correctly when the report instance
+        belongs to a different company than the user's current company."""
+        # Create a second company
+        company2 = self.env["res.company"].create({"name": "Test Co 2"})
+        # Create an account in company2 with a code
+        account = (
+            self.env["account.account"]
+            .with_company(company2)
+            .create(
+                {
+                    "name": "Test Account",
+                    "code": "999001",
+                    "account_type": "expense",
+                    "company_ids": [(6, 0, [company2.id])],
+                }
+            )
+        )
+        # Verify the code is set for company2
+        acct_c2 = account.with_company(company2)
+        self.assertEqual(acct_c2.code, "999001")
+        # Verify the code is NOT visible from main company
+        acct_c1 = account.with_company(self.env.ref("base.main_company"))
+        self.assertFalse(acct_c1.code)
+        # Create a simple report + instance for company2
+        report = self.env["mis.report"].create({"name": "test mc report"})
+        self.env["mis.report.kpi"].create(
+            {
+                "report_id": report.id,
+                "name": "exp",
+                "description": "Expenses",
+                "auto_expand_accounts": True,
+                "sequence": 1,
+                "expression_ids": [
+                    (0, 0, {"name": "balp[999%]"}),
+                ],
+            }
+        )
+        instance = self.env["mis.report.instance"].create(
+            {
+                "name": "test mc instance",
+                "report_id": report.id,
+                "company_id": company2.id,
+                "period_ids": [
+                    (
+                        0,
+                        0,
+                        {
+                            "name": "p1",
+                            "mode": "fix",
+                            "manual_date_from": "2024-01-01",
+                            "manual_date_to": "2024-12-31",
+                        },
+                    ),
+                ],
+            }
+        )
+        # Compute the matrix — the user's current company is main_company,
+        # but the report belongs to company2. Account codes should still
+        # display correctly.
+        matrix = instance.compute()
+        body = matrix.get("body", [])
+        # Find any row with "999001" or "False" in the label
+        has_false = any("False" in (r.get("label") or "") for r in body)
+        self.assertFalse(
+            has_false,
+            "Account codes should not show as 'False' in multi-company reports",
+        )
+
     def test_qweb(self):
         self.report_instance.print_pdf()  # get action
         test_reports.try_report(
