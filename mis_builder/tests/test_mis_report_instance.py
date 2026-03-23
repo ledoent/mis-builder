@@ -500,7 +500,10 @@ class TestMisReportInstance(common.HttpCase):
         action = self.report_instance.drilldown(
             {"expr": "k1 + k2 + k3", "period_id": period.id, "kpi_id": k4.id}
         )
-        self.assertTrue(action, "Computed KPI referencing account KPIs should drilldown")
+        self.assertTrue(
+            action,
+            "Computed KPI referencing account KPIs should drilldown",
+        )
         self.assertEqual(action["type"], "ir.actions.act_window")
         self.assertEqual(action["res_model"], "account.move.line")
         # Domain should contain account_id filters from both k1 and k2
@@ -538,20 +541,21 @@ class TestMisReportInstance(common.HttpCase):
         )
 
     def test_computed_kpi_clickable_in_matrix(self):
-        """Computed KPIs referencing account KPIs should have drilldown_arg."""
+        """Computed KPIs referencing account KPIs should have
+        drilldown_arg."""
         matrix = self.report_instance.compute()
-        # Find the k4 row (computed: k1 + k2 + k3)
+        # Find the k4 row (description "kpi 4", computed: k1+k2+k3)
         k4_row = None
         for row in matrix.get("body", []):
-            if row.get("kpi_name") == "k4":
+            if row.get("label") == "kpi 4":
                 k4_row = row
                 break
         self.assertTrue(k4_row, "k4 row should be in the report body")
-        # At least one cell should have drilldown_arg since k1/k2 have account vars
-        has_drilldown = any("drilldown_arg" in cell for cell in k4_row.get("cells", []))
+        # At least one cell should have drilldown_arg
+        has_dd = any("drilldown_arg" in c for c in k4_row.get("cells", []))
         self.assertTrue(
-            has_drilldown,
-            "Computed KPI k4 should be clickable since it references k1/k2",
+            has_dd,
+            "Computed KPI k4 should be clickable",
         )
 
     def test_qweb(self):
