@@ -1,0 +1,45 @@
+# QA Screenshots — runs odoo-qa against this PR's Odoo instance
+# Detects changed modules and runs only relevant browser tests.
+
+name: QA Screenshots
+
+on:
+  pull_request:
+    branches: ["18.0", "19.0"]
+    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      odoo_url:
+        description: "Odoo instance URL to test against"
+        required: true
+        type: string
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.modules.outputs.list }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed modules
+        id: modules
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null || git diff --name-only HEAD~1)
+          MODULES=$(echo "$CHANGED" | cut -d/ -f1 | sort -u | grep -v -E '^\.|^setup$|^requirements' | tr '\n' ',' | sed 's/,$//')
+          echo "Changed modules: $MODULES"
+          echo "list=$MODULES" >> $GITHUB_OUTPUT
+
+  qa-screenshots:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.modules != ''
+    uses: ledoent/odoo-qa/.github/workflows/qa-for-pr.yml@main
+    with:
+      # For runboat: replace with your runboat URL pattern
+      # For local testing: use workflow_dispatch with odoo_url input
+      odoo_url: ${{ inputs.odoo_url || 'http://localhost:8069' }}
+      changed_modules: ${{ needs.detect-changes.outputs.modules }}
+    secrets:
+      odoo_password: ${{ secrets.ODOO_PASSWORD || 'admin' }}
