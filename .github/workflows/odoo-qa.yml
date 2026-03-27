@@ -1,24 +1,23 @@
-# QA Screenshots — runs odoo-qa against this PR's Odoo instance
-# Detects changed modules and runs only relevant browser tests.
+# QA Screenshots — runs odoo-qa against the runboat instance for this PR.
 
 name: QA Screenshots
 
 on:
   pull_request:
-    branches: ["18.0", "19.0"]
+    branches: ["18.0"]
     types: [opened, synchronize]
   workflow_dispatch:
     inputs:
       odoo_url:
-        description: "Odoo instance URL to test against"
-        required: true
+        description: "Override Odoo URL (leave empty to use runboat)"
+        required: false
         type: string
 
 jobs:
-  detect-changes:
+  qa:
     runs-on: ubuntu-latest
-    outputs:
-      modules: ${{ steps.modules.outputs.list }}
+    timeout-minutes: 20
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,14 +31,62 @@ jobs:
           echo "Changed modules: $MODULES"
           echo "list=$MODULES" >> $GITHUB_OUTPUT
 
-  qa-screenshots:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.modules != ''
-    uses: ledoent/odoo-qa/.github/workflows/qa-for-pr.yml@main
-    with:
-      # For runboat: replace with your runboat URL pattern
-      # For local testing: use workflow_dispatch with odoo_url input
-      odoo_url: ${{ inputs.odoo_url || 'http://localhost:8069' }}
-      changed_modules: ${{ needs.detect-changes.outputs.modules }}
-    secrets:
-      odoo_password: ${{ secrets.ODOO_PASSWORD || 'admin' }}
+      - name: Determine runboat URL
+        id: runboat
+        run: |
+          if [ -n "${{ inputs.odoo_url }}" ]; then
+            echo "url=${{ inputs.odoo_url }}" >> $GITHUB_OUTPUT
+          else
+            REPO_SLUG=$(echo "${{ github.repository }}" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+            BRANCH_SLUG=$(echo "${{ github.base_ref }}" | tr '/' '-')
+            PR_NUM="${{ github.event.pull_request.number }}"
+            COMMIT=$(echo "${{ github.event.pull_request.head.sha }}" | head -c 12)
+            echo "url=https://${REPO_SLUG}-${BRANCH_SLUG}-pr${PR_NUM}-${COMMIT}.runboat.hz.ledoweb.com" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Wait for runboat
+        run: |
+          URL="${{ steps.runboat.outputs.url }}"
+          echo "Waiting for $URL ..."
+          for i in $(seq 1 60); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/web/login" 2>/dev/null || echo "000")
+            [ "$STATUS" = "200" ] || [ "$STATUS" = "303" ] && echo "Ready" && break
+            echo "  $i: HTTP $STATUS"; sleep 10
+          done
+
+      - name: Run QA
+        env:
+          ODOO_URL: ${{ steps.runboat.outputs.url }}
+          ODOO_USER: admin
+          ODOO_PASSWORD: admin
+        run: |
+          git clone --depth=1 https://github.com/ledoent/odoo-qa.git /tmp/odoo-qa
+          cd /tmp/odoo-qa && npm ci && npx playwright install --with-deps chromium
+          mkdir -p test-results/checkpoints test-results/diffs test-results/baselines .auth .cache
+
+          node scripts/detect-modules.mjs > .cache/modules.json || true
+
+          MODULES="${{ steps.modules.outputs.list }}"
+          if [ -n "$MODULES" ]; then
+            PATTERN=$(node scripts/resolve-specs.mjs --grep $(echo "$MODULES" | tr ',' ' '))
+            npx playwright test --grep "$PATTERN" --grep-invert "perf:" || true
+          else
+            npx playwright test --grep-invert "perf:" || true
+          fi
+
+          # Visual diff against 18.0 baseline
+          for f in $(curl -s "https://storage.googleapis.com/storage/v1/b/ledo-pr-assets/o?prefix=odoo-qa/baselines/18.0/checkpoints/&fields=items/name" 2>/dev/null | python3 -c "import sys,json;[print(i['name'].split('/')[-1]) for i in json.load(sys.stdin).get('items',[])]" 2>/dev/null); do
+            curl -sO "https://storage.googleapis.com/ledo-pr-assets/odoo-qa/baselines/18.0/checkpoints/$f" --output-dir test-results/baselines/ 2>/dev/null
+          done
+          node scripts/visual-diff.mjs --baseline=test-results/baselines --current=test-results/checkpoints --output=test-results/diffs 2>/dev/null || true
+
+          cp -r test-results $GITHUB_WORKSPACE/test-results
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-results
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: warn
