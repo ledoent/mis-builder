@@ -37,11 +37,17 @@ jobs:
           if [ -n "${{ inputs.odoo_url }}" ]; then
             echo "url=${{ inputs.odoo_url }}" >> $GITHUB_OUTPUT
           else
-            REPO_SLUG=$(echo "${{ github.repository }}" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
-            BRANCH_SLUG=$(echo "${{ github.base_ref }}" | tr '/' '-')
+            # Use head repo (the fork), not base repo (upstream OCA)
+            HEAD_REPO="${{ github.event.pull_request.head.repo.full_name }}"
+            # Fallback to current repo if not a PR context
+            REPO="${HEAD_REPO:-${{ github.repository }}}"
+            REPO_SLUG=$(echo "$REPO" | tr '/' '-' | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+            BRANCH_SLUG=$(echo "${{ github.base_ref }}" | tr '.' '-')
             PR_NUM="${{ github.event.pull_request.number }}"
             COMMIT=$(echo "${{ github.event.pull_request.head.sha }}" | head -c 12)
-            echo "url=https://${REPO_SLUG}-${BRANCH_SLUG}-pr${PR_NUM}-${COMMIT}.runboat.hz.ledoweb.com" >> $GITHUB_OUTPUT
+            URL="https://${REPO_SLUG}-${BRANCH_SLUG}-pr${PR_NUM}-${COMMIT}.runboat.hz.ledoweb.com"
+            echo "Runboat URL: $URL"
+            echo "url=$URL" >> $GITHUB_OUTPUT
           fi
 
       - name: Wait for runboat
@@ -49,7 +55,7 @@ jobs:
           URL="${{ steps.runboat.outputs.url }}"
           echo "Waiting for $URL ..."
           for i in $(seq 1 60); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/web/login" 2>/dev/null || echo "000")
+            STATUS=$(curl -sk -o /dev/null -w "%{http_code}" "$URL/web/login" 2>/dev/null || echo "000")
             [ "$STATUS" = "200" ] || [ "$STATUS" = "303" ] && echo "Ready" && break
             echo "  $i: HTTP $STATUS"; sleep 10
           done
