@@ -425,7 +425,19 @@ class TestMisReportInstance(common.HttpCase):
 
     def test_drilldown_action_name_with_account(self):
         period = self.report_instance.period_ids[0]
-        account = self.env["account.account"].search([], limit=1)
+        account = self.env["account.account"].search(
+            [("company_ids", "in", [self.env.ref("base.main_company").id])],
+            limit=1,
+        )
+        if not account:
+            account = self.env["account.account"].create(
+                {
+                    "code": "TEST200",
+                    "name": "Test drilldown account",
+                    "account_type": "asset_current",
+                    "company_ids": [(4, self.env.ref("base.main_company").id)],
+                }
+            )
         args = {
             "period_id": period.id,
             "kpi_id": self.kpi1.id,
@@ -435,7 +447,7 @@ class TestMisReportInstance(common.HttpCase):
         expected_name = (
             f"{self.kpi1.description} - {account.display_name} - {period.display_name}"
         )
-        assert action_name == expected_name
+        self.assertEqual(action_name, expected_name)
 
     def test_drilldown_action_name_without_account(self):
         period = self.report_instance.period_ids[0]
