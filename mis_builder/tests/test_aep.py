@@ -4,10 +4,10 @@
 import datetime
 import time
 
-import odoo.tests.common as common
 from odoo import Command, fields
 from odoo.exceptions import UserError
 from odoo.fields import Domain
+from odoo.tests import common
 from odoo.tools.safe_eval import safe_eval
 
 from ..models import aep
@@ -421,11 +421,11 @@ class TestAEP(common.TransactionCase):
                     # debi[700IN]
                     "&",
                     ("account_id", "in", [self.account_in.id]),
-                    ("debit", "<>", 0.0),
+                    ("debit", "!=", 0.0),
                     # crdi[400AR]
                     "&",
                     ("account_id", "in", [self.account_ar.id]),
-                    ("credit", "<>", 0.0),
+                    ("credit", "!=", 0.0),
                     "&",
                     # for P&L accounts, only after fy start
                     "|",

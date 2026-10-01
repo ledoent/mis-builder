@@ -336,9 +336,9 @@ class AccountingExpressionProcessor:
                 else:
                     continue
             if field == "crd":
-                aml_domain.append(("credit", "<>", 0.0))
+                aml_domain.append(("credit", "!=", 0.0))
             elif field == "deb":
-                aml_domain.append(("debit", "<>", 0.0))
+                aml_domain.append(("debit", "!=", 0.0))
             elif fld_name:
                 aml_domain.append((fld_name, "!=", False))
             aml_domains.append(aml_domain)
