@@ -147,6 +147,16 @@ export class MisReportWidget extends Component {
         };
     }
 
+    /**
+     * Owl 3 renders with `this` as the entire context -- globals are not in
+     * scope either, so `JSON.stringify(...)` in a template resolves JSON to
+     * undefined and throws. Core 20.0 keeps JSON in JS and uses zero
+     * JSON.stringify in any template; this helper follows that.
+     */
+    drilldownArg(cell) {
+        return JSON.stringify(cell.drilldown_arg);
+    }
+
     async drilldown(event) {
         const drilldown = JSON.parse(event.target.dataset.drilldown);
         const action = await this.orm.call(
