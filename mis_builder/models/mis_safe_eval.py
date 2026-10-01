@@ -3,12 +3,13 @@
 
 import traceback
 
-from odoo.tools.safe_eval import (
-    _BUILTINS,
-    _SAFE_OPCODES,
-    assert_valid_codeobj,
-    compile_codeobj,
-)
+from odoo.tools.safe_eval import _BUILTINS, _SAFE_OPCODES, assert_valid_codeobj
+
+# 20.0 split odoo/tools/safe_eval.py into a package. compile_codeobj is still
+# there (safe_eval/evaluation.py) but is absent from that module's __all__, so
+# the package's `from .evaluation import *` does not re-export it -- importing
+# it from odoo.tools.safe_eval raises ImportError. Reach into the submodule.
+from odoo.tools.safe_eval.evaluation import compile_codeobj
 
 from .data_error import DataError, NameDataError
 
