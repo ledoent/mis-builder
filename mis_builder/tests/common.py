@@ -79,7 +79,7 @@ def try_xlsx_report(
 
     This function should also check for common pitfalls of reports.
 
-    this is inspired from the odoo.tools.test_reports.try_report specialiazed to xlsx
+    this is inspired from the odoo.tests.reports.try_report specialiazed to xlsx
     """
     if context is None:
         context = {}

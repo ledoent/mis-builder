@@ -1,14 +1,20 @@
-import {Component, onMounted, onWillStart, useState, useSubEnv} from "@odoo/owl";
+import {Component, onMounted, onWillStart, proxy, useProps} from "@odoo/owl";
+import {useSubEnv} from "@web/owl2/utils";
 import {useBus, useService} from "@web/core/utils/hooks";
 import {DateTimeInput} from "@web/core/datetime/datetime_input";
 import {SearchBar} from "@web/search/search_bar/search_bar";
 import {SearchModel} from "@web/search/search_model";
 import {parseDate} from "@web/core/l10n/dates";
 import {registry} from "@web/core/registry";
+import {standardFieldProps} from "@web/views/fields/standard_field_props";
 import {AnnotationDialog} from "../annotation_dialog/annotation_dialog.esm";
 import {_t} from "@web/core/l10n/translation";
 
 export class MisReportWidget extends Component {
+    // Owl 3 only materialises declared props, so a field widget that reads
+    // this.props has to say so.
+    props = useProps(standardFieldProps);
+
     setup() {
         super.setup();
         this.orm = useService("orm");
@@ -16,16 +22,24 @@ export class MisReportWidget extends Component {
         this.view = useService("view");
         this.dialog = useService("dialog");
         this.JSON = JSON;
-        this.state = useState({
+        this.state = proxy({
             mis_report_data: {header: [], body: [], notes: {}},
             pivot_date: null,
             can_edit_annotation: false,
             can_read_annotation: false,
         });
+        // 20.0's SearchModel.setup destructures a wider service bag and calls
+        // usePlugin() internally, so it has to be constructed during setup with
+        // field/name/tree_processor supplied as well -- see core's WithSearch
+        // (web/static/src/search/with_search/with_search.js:55-67), which is the
+        // only place core builds one.
         this.searchModel = new SearchModel(this.env, {
             orm: this.orm,
             view: this.view,
             dialog: this.dialog,
+            field: useService("field"),
+            name: useService("name"),
+            treeProcessor: useService("tree_processor"),
         });
         useSubEnv({searchModel: this.searchModel});
         useBus(this.env.searchModel, "update", async () => {
@@ -102,8 +116,12 @@ export class MisReportWidget extends Component {
      * @returns int
      */
     _instanceId() {
-        if (this.props.value) {
-            return this.props.value;
+        // The widget is bound to the `id` field, so the instance id is the
+        // record's own id. props.value has not been part of standardFieldProps
+        // for several versions -- that branch was already dead -- and 20.0's
+        // schema is {id, name, readonly, record}.
+        if (this.props.record.resId) {
+            return this.props.record.resId;
         }
 
         /*
@@ -127,6 +145,16 @@ export class MisReportWidget extends Component {
             ...(this.showPivotDate &&
                 this.state.pivot_date && {mis_pivot_date: this.state.pivot_date}),
         };
+    }
+
+    /**
+     * Owl 3 renders with `this` as the entire context -- globals are not in
+     * scope either, so `JSON.stringify(...)` in a template resolves JSON to
+     * undefined and throws. Core 20.0 keeps JSON in JS and uses zero
+     * JSON.stringify in any template; this helper follows that.
+     */
+    drilldownArg(cell) {
+        return JSON.stringify(cell.drilldown_arg);
     }
 
     async drilldown(event) {
