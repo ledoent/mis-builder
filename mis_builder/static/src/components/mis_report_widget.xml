@@ -23,11 +23,11 @@
                         <div class="oe_mis_builder_cp_right_bottom">
                             <div class="oe_mis_builder_filter_buttons">
                                 <DateTimeInput
-                                    value="state.pivot_date"
+                                    value="this.state.pivot_date"
                                     placeholder="'Base date...'"
                                     type="'date'"
                                     t-if="this.showPivotDate"
-                                    onChange.bind="onDateTimeChanged"
+                                    onChange.bind="this.onDateTimeChanged"
                                 />
                             </div>
                             <div class="oe_mis_builder_action_buttons">
