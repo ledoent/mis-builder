@@ -7,9 +7,9 @@ import logging
 import re
 import time
 from collections import defaultdict
+from zoneinfo import ZoneInfo
 
 import dateutil
-import pytz
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -56,10 +56,12 @@ class AutoStruct:
 
 def _utc_midnight(d, tz_name, add_day=0):
     d = fields.Datetime.from_string(d) + datetime.timedelta(days=add_day)
-    utc_tz = pytz.timezone("UTC")
-    context_tz = pytz.timezone(tz_name)
-    local_timestamp = context_tz.localize(d, is_dst=False)
-    return fields.Datetime.to_string(local_timestamp.astimezone(utc_tz))
+    # pytz is rejected by .pylintrc-mandatory's deprecated-modules and is no
+    # longer in Odoo's own requirements.txt. pytz's localize(..., is_dst=False)
+    # resolved an ambiguous local time (the DST fall-back hour) to the standard
+    # -time reading; zoneinfo spells that fold=1.
+    local_timestamp = d.replace(tzinfo=ZoneInfo(tz_name), fold=1)
+    return fields.Datetime.to_string(local_timestamp.astimezone(datetime.timezone.utc))
 
 
 def _python_var(var_str):
@@ -84,7 +86,11 @@ class MisReportKpi(models.Model):
     _name = "mis.report.kpi"
     _description = "MIS Report KPI"
 
-    name = fields.Char(required=True)
+    # copy=True is explicit on purpose: 20.0 gives any Char field *named*
+    # `name` a "(copy)" suffix on duplication unless copy is declared
+    # (orm/fields_textual.py:529-533), and this one has to stay a valid
+    # python identifier -- see _check_name below.
+    name = fields.Char(required=True, copy=True)
     description = fields.Char(required=True, translate=True)
     multi = fields.Boolean()
     expression = fields.Char(
@@ -254,7 +260,11 @@ class MisReportSubkpi(models.Model):
     report_id = fields.Many2one(
         comodel_name="mis.report", required=True, ondelete="cascade"
     )
-    name = fields.Char(required=True)
+    # copy=True is explicit on purpose: 20.0 gives any Char field *named*
+    # `name` a "(copy)" suffix on duplication unless copy is declared
+    # (orm/fields_textual.py:529-533), and this one has to stay a valid
+    # python identifier -- see _check_name below.
+    name = fields.Char(required=True, copy=True)
     description = fields.Char(required=True, translate=True)
     expression_ids = fields.One2many("mis.report.kpi.expression", "subkpi_id")
 
@@ -351,7 +361,11 @@ class MisReportQuery(models.Model):
             field_names = [field.name for field in record.field_ids]
             record.field_names = ", ".join(field_names)
 
-    name = fields.Char(required=True)
+    # copy=True is explicit on purpose: 20.0 gives any Char field *named*
+    # `name` a "(copy)" suffix on duplication unless copy is declared
+    # (orm/fields_textual.py:529-533), and this one has to stay a valid
+    # python identifier -- see _check_name below.
+    name = fields.Char(required=True, copy=True)
     model_id = fields.Many2one("ir.model", required=True, ondelete="cascade")
     field_ids = fields.Many2many(
         "ir.model.fields", required=True, string="Fields to fetch"

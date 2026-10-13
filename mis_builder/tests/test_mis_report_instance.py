@@ -1,9 +1,9 @@
 # Copyright 2016 ACSONE SA/NV (<http://acsone.eu>)
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl.html).
 
-import odoo.tests.common as common
 from odoo.fields import Domain
-from odoo.tools import test_reports
+from odoo.tests import common
+from odoo.tests import reports as test_reports
 
 from ..models.accounting_none import AccountingNone
 from ..models.mis_report import TYPE_STR, SubKPITupleLengthError, SubKPIUnknownTypeError

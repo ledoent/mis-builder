@@ -107,7 +107,9 @@ class TestMisBudget(TransactionCase):
             )
         )
         # clear cache to force re-read of kpis ordered by sequence
-        cls.env.clear()
+        # (env.clear() is deprecated in 20.0 and is what OCA's checklog gate
+        # turns into a job failure; it only delegated to transaction.clear)
+        cls.env.transaction.clear()
 
     def test1(self):
         matrix = self.instance._compute_matrix()
