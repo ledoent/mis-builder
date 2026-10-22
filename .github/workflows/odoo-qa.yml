@@ -1,0 +1,98 @@
+# QA Screenshots — runs odoo-qa against the runboat instance for this PR.
+
+name: QA Screenshots
+
+on:
+  pull_request:
+    branches: ["18.0"]
+    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      odoo_url:
+        description: "Override Odoo URL (leave empty to use runboat)"
+        required: false
+        type: string
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed modules
+        id: modules
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null || git diff --name-only HEAD~1)
+          MODULES=$(echo "$CHANGED" | cut -d/ -f1 | sort -u | grep -v -E '^\.|^setup$|^requirements' | tr '\n' ',' | sed 's/,$//')
+          echo "Changed modules: $MODULES"
+          echo "list=$MODULES" >> $GITHUB_OUTPUT
+
+      - name: Determine runboat URL
+        id: runboat
+        run: |
+          if [ -n "${{ inputs.odoo_url }}" ]; then
+            echo "url=${{ inputs.odoo_url }}" >> $GITHUB_OUTPUT
+          else
+            # Use head repo (the fork), not base repo (upstream OCA)
+            HEAD_REPO="${{ github.event.pull_request.head.repo.full_name }}"
+            REPO="${HEAD_REPO:-${{ github.repository }}}"
+            REPO_SLUG=$(echo "$REPO" | tr '/' '-' | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+            BRANCH_SLUG=$(echo "${{ github.base_ref }}" | tr '.' '-')
+            PR_NUM="${{ github.event.pull_request.number }}"
+            COMMIT=$(echo "${{ github.event.pull_request.head.sha }}" | head -c 12)
+            URL="https://${REPO_SLUG}-${BRANCH_SLUG}-pr${PR_NUM}-${COMMIT}.runboat.hz.ledoweb.com"
+            echo "Runboat URL: $URL"
+            echo "url=$URL" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Wait for runboat
+        run: |
+          URL="${{ steps.runboat.outputs.url }}"
+          echo "Waiting for $URL ..."
+          for i in $(seq 1 90); do
+            STATUS=$(curl -sk -o /dev/null -w "%{http_code}" "$URL/web/login" 2>/dev/null || echo "000")
+            [ "$STATUS" = "200" ] || [ "$STATUS" = "303" ] && echo "Ready (HTTP $STATUS)" && break
+            echo "  Attempt $i/90: HTTP $STATUS"; sleep 10
+          done
+
+      - name: Run QA
+        env:
+          ODOO_URL: ${{ steps.runboat.outputs.url }}
+          ODOO_USER: admin
+          ODOO_PASSWORD: admin
+        run: |
+          git clone --depth=1 https://github.com/ledoent/odoo-qa.git /tmp/odoo-qa
+          cd /tmp/odoo-qa && npm ci && npx playwright install --with-deps chromium
+          mkdir -p test-results/checkpoints test-results/diffs test-results/baselines .auth .cache
+
+          node scripts/detect-modules.mjs > .cache/modules.json || true
+
+          MODULES="${{ steps.modules.outputs.list }}"
+          if [ -n "$MODULES" ]; then
+            PATTERN=$(node scripts/resolve-specs.mjs --grep $(echo "$MODULES" | tr ',' ' '))
+            echo "Specs: $PATTERN"
+            npx playwright test --grep "$PATTERN" --grep-invert "perf:" || true
+          else
+            npx playwright test --grep-invert "perf:" || true
+          fi
+
+          # Download 18.0 baseline from GCS for visual diff
+          for f in $(curl -s "https://storage.googleapis.com/storage/v1/b/ledo-pr-assets/o?prefix=odoo-qa/baselines/18.0/checkpoints/&fields=items/name" 2>/dev/null | python3 -c "import sys,json;[print(i['name'].split('/')[-1]) for i in json.load(sys.stdin).get('items',[])]" 2>/dev/null); do
+            curl -s "https://storage.googleapis.com/ledo-pr-assets/odoo-qa/baselines/18.0/checkpoints/$f" -o "test-results/baselines/$f" 2>/dev/null
+          done
+          node scripts/visual-diff.mjs --baseline=test-results/baselines --current=test-results/checkpoints --output=test-results/diffs 2>/dev/null || true
+
+          cp -r test-results $GITHUB_WORKSPACE/test-results
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-results
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: warn
