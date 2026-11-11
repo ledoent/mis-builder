@@ -275,8 +275,11 @@ export class MisReportWidget extends Component {
             this.wide_display
         );
         var button_resize_element = document.getElementById("icon_resize");
-        button_resize_element.classList.toggle("fa-expand", !this.wide_display);
-        button_resize_element.classList.toggle("fa-compress", this.wide_display);
+        // Material Symbols pick the glyph from data-icon, not from a class,
+        // so swap the attribute rather than toggling two classes.
+        button_resize_element.dataset.icon = this.wide_display
+            ? "close_fullscreen"
+            : "expand_content";
     }
 }
 

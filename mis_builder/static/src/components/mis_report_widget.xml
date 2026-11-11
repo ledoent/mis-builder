@@ -13,7 +13,11 @@
                                     t-on-click="this.toggle_wide_display"
                                     class="btn"
                                 >
-                                    <i id="icon_resize" class="fa" />
+                                    <i
+                                        id="icon_resize"
+                                        class="oi"
+                                        data-icon="expand_content"
+                                    />
                                 </button>
                             </div>
                         </div>
